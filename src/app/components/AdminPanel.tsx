@@ -1,10 +1,12 @@
+import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { ScrollArea } from "./ui/scroll-area";
 import { Badge } from "./ui/badge";
 import { LogOut, Users, TrendingUp, Coins, Activity, Shield, AlertCircle } from "lucide-react";
-import { Toaster } from "sonner";
+import { toast, Toaster } from "sonner";
+import * as api from "../services/api";
 
 interface AdminPanelProps {
   user: {
@@ -12,37 +14,62 @@ interface AdminPanelProps {
     username: string;
     role: string;
   };
+  authToken: string;
   onLogout: () => void;
 }
 
-// Mock data for demonstration
-const mockUsers = [
-  { id: 1, username: "DragonSlayer", email: "demo@crystalrealms.com", level: 15, crypto: 0.125, status: "active", lastLogin: "2 hours ago" },
-  { id: 2, username: "MageKing", email: "player2@crystalrealms.com", level: 22, crypto: 0.298, status: "active", lastLogin: "1 day ago" },
-  { id: 3, username: "ShadowRogue", email: "player3@crystalrealms.com", level: 8, crypto: 0.045, status: "active", lastLogin: "3 days ago" },
-  { id: 4, username: "IronWarrior", email: "player4@crystalrealms.com", level: 12, crypto: 0.089, status: "suspended", lastLogin: "1 week ago" },
-];
+export function AdminPanel({ user, authToken, onLogout }: AdminPanelProps) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [systemStats, setSystemStats] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-const mockTransactions = [
-  { id: 1, username: "DragonSlayer", type: "Combat Victory", amount: 0.0005, timestamp: "2024-12-25 14:32" },
-  { id: 2, username: "MageKing", type: "Quest Completion", amount: 0.0015, timestamp: "2024-12-25 14:28" },
-  { id: 3, username: "ShadowRogue", type: "Combat Victory", amount: 0.0003, timestamp: "2024-12-25 14:15" },
-  { id: 4, username: "DragonSlayer", type: "Quest Completion", amount: 0.002, timestamp: "2024-12-25 13:45" },
-  { id: 5, username: "IronWarrior", type: "Combat Victory", amount: 0.0004, timestamp: "2024-12-25 12:30" },
-];
+  useEffect(() => {
+    loadAdminData();
+  }, []);
 
-const mockSystemStats = {
-  totalUsers: 1247,
-  activeUsers: 834,
-  totalCryptoDistributed: 2.456,
-  totalBattles: 45289,
-  totalQuests: 12843,
-  serverUptime: "99.8%",
-  averageSessionTime: "45 min",
-  newUsersToday: 23,
-};
+  const loadAdminData = async () => {
+    try {
+      setIsLoading(true);
+      const [usersData, transactionsData, statsData] = await Promise.all([
+        api.getAllUsers(authToken),
+        api.getAllTransactions(authToken),
+        api.getSystemStats(authToken),
+      ]);
 
-export function AdminPanel({ user, onLogout }: AdminPanelProps) {
+      setUsers(usersData);
+      setTransactions(transactionsData);
+      setSystemStats(statsData);
+    } catch (error: any) {
+      console.error("Failed to load admin data:", error);
+      toast.error("Failed to load admin data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateUserStatus = async (userId: string, status: string) => {
+    try {
+      await api.updateUserStatus(authToken, userId, status);
+      toast.success(`User ${status === "active" ? "activated" : "suspended"}`);
+      await loadAdminData();
+    } catch (error: any) {
+      console.error("Failed to update user status:", error);
+      toast.error("Failed to update user status");
+    }
+  };
+
+  if (isLoading || !systemStats) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-red-400 mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading admin panel...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
       <Toaster position="top-center" theme="dark" />
@@ -81,9 +108,9 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
               </div>
               <Badge className="bg-blue-600">Live</Badge>
             </div>
-            <div className="text-2xl text-blue-400">{mockSystemStats.totalUsers}</div>
+            <div className="text-2xl text-blue-400">{systemStats.totalUsers}</div>
             <div className="text-sm text-slate-400">Total Users</div>
-            <div className="text-xs text-emerald-400 mt-1">+{mockSystemStats.newUsersToday} today</div>
+            <div className="text-xs text-emerald-400 mt-1">+{systemStats.newUsersToday} today</div>
           </Card>
 
           <Card className="p-4 bg-gradient-to-br from-slate-900 to-slate-800 border-emerald-600/30">
@@ -93,9 +120,9 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
               </div>
               <Badge className="bg-emerald-600">Online</Badge>
             </div>
-            <div className="text-2xl text-emerald-400">{mockSystemStats.activeUsers}</div>
+            <div className="text-2xl text-emerald-400">{systemStats.activeUsers}</div>
             <div className="text-sm text-slate-400">Active Users</div>
-            <div className="text-xs text-slate-500 mt-1">{mockSystemStats.averageSessionTime} avg session</div>
+            <div className="text-xs text-slate-500 mt-1">{systemStats.averageSessionTime} avg session</div>
           </Card>
 
           <Card className="p-4 bg-gradient-to-br from-slate-900 to-slate-800 border-amber-600/30">
@@ -105,7 +132,7 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
               </div>
               <Badge className="bg-amber-600">Total</Badge>
             </div>
-            <div className="text-2xl text-amber-400">{mockSystemStats.totalCryptoDistributed}</div>
+            <div className="text-2xl text-amber-400">{systemStats.totalCryptoDistributed}</div>
             <div className="text-sm text-slate-400">Crypto Distributed</div>
             <div className="text-xs text-slate-500 mt-1">CRYSTAL Coins</div>
           </Card>
@@ -115,11 +142,11 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
               <div className="p-2 bg-purple-600/20 rounded-lg">
                 <TrendingUp className="w-5 h-5 text-purple-400" />
               </div>
-              <Badge className="bg-purple-600">{mockSystemStats.serverUptime}</Badge>
+              <Badge className="bg-purple-600">{systemStats.serverUptime}</Badge>
             </div>
-            <div className="text-2xl text-purple-400">{mockSystemStats.totalBattles}</div>
+            <div className="text-2xl text-purple-400">{systemStats.totalBattles}</div>
             <div className="text-sm text-slate-400">Total Battles</div>
-            <div className="text-xs text-slate-500 mt-1">{mockSystemStats.totalQuests} quests completed</div>
+            <div className="text-xs text-slate-500 mt-1">{systemStats.totalQuests} quests completed</div>
           </Card>
         </div>
 
@@ -134,38 +161,53 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
           {/* Users Tab */}
           <TabsContent value="users" className="mt-4">
             <Card className="p-4 bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700">
-              <h2 className="text-xl text-amber-400 mb-4">User Management</h2>
+              <h2 className="text-xl text-amber-400 mb-4">User Management ({users.length} users)</h2>
               <ScrollArea className="h-[600px]">
                 <div className="space-y-3">
-                  {mockUsers.map((user) => (
-                    <Card key={user.id} className="p-4 bg-slate-800/50 border-slate-700">
+                  {users.map((u) => (
+                    <Card key={u.id} className="p-4 bg-slate-800/50 border-slate-700">
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="text-lg text-slate-200">{user.username}</h3>
-                            <Badge className={user.status === "active" ? "bg-emerald-600" : "bg-red-600"}>
-                              {user.status}
+                            <h3 className="text-lg text-slate-200">{u.username}</h3>
+                            <Badge className={u.status === "active" ? "bg-emerald-600" : "bg-red-600"}>
+                              {u.status}
                             </Badge>
+                            {u.role === "admin" && (
+                              <Badge className="bg-purple-600">Admin</Badge>
+                            )}
                           </div>
-                          <p className="text-sm text-slate-400">{user.email}</p>
+                          <p className="text-sm text-slate-400">{u.email}</p>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm text-slate-400">Level {user.level}</div>
-                          <div className="text-emerald-400">{user.crypto} CRYSTAL</div>
+                          <div className="text-sm text-slate-400">Level {u.level}</div>
+                          <div className="text-emerald-400">{u.crypto?.toFixed(4) || 0} CRYSTAL</div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Last login: {user.lastLogin}</span>
+                        <span className="text-slate-500">
+                          Last login: {new Date(u.lastLogin).toLocaleDateString()}
+                        </span>
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" className="border-blue-600/50 text-blue-400 hover:bg-blue-600/10">
-                            View
-                          </Button>
-                          <Button size="sm" variant="outline" className="border-amber-600/50 text-amber-400 hover:bg-amber-600/10">
-                            Edit
-                          </Button>
-                          <Button size="sm" variant="outline" className="border-red-600/50 text-red-400 hover:bg-red-600/10">
-                            Suspend
-                          </Button>
+                          {u.status === "active" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-red-600/50 text-red-400 hover:bg-red-600/10"
+                              onClick={() => handleUpdateUserStatus(u.id, "suspended")}
+                            >
+                              Suspend
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-emerald-600/50 text-emerald-400 hover:bg-emerald-600/10"
+                              onClick={() => handleUpdateUserStatus(u.id, "active")}
+                            >
+                              Activate
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </Card>
@@ -178,10 +220,10 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
           {/* Transactions Tab */}
           <TabsContent value="transactions" className="mt-4">
             <Card className="p-4 bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700">
-              <h2 className="text-xl text-emerald-400 mb-4">Recent Transactions</h2>
+              <h2 className="text-xl text-emerald-400 mb-4">Recent Transactions ({transactions.length})</h2>
               <ScrollArea className="h-[600px]">
                 <div className="space-y-2">
-                  {mockTransactions.map((tx) => (
+                  {transactions.map((tx) => (
                     <Card key={tx.id} className="p-3 bg-slate-800/50 border-slate-700">
                       <div className="flex items-center justify-between">
                         <div>
@@ -189,11 +231,13 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
                             <Coins className="w-4 h-4 text-emerald-400" />
                             <span className="text-slate-200">{tx.username}</span>
                           </div>
-                          <div className="text-sm text-slate-400">{tx.type}</div>
+                          <div className="text-sm text-slate-400">{tx.description}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-emerald-400">+{tx.amount} CRYSTAL</div>
-                          <div className="text-xs text-slate-500">{tx.timestamp}</div>
+                          <div className="text-emerald-400">+{tx.amount?.toFixed(4)} CRYSTAL</div>
+                          <div className="text-xs text-slate-500">
+                            {new Date(tx.timestamp).toLocaleString()}
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -223,7 +267,7 @@ export function AdminPanel({ user, onLogout }: AdminPanelProps) {
                   </div>
                   <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded">
                     <span className="text-slate-300">Uptime</span>
-                    <span className="text-emerald-400">{mockSystemStats.serverUptime}</span>
+                    <span className="text-emerald-400">{systemStats.serverUptime}</span>
                   </div>
                 </div>
               </Card>

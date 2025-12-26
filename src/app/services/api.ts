@@ -1,13 +1,18 @@
-import { createClient } from "@supabase/supabase-js";
+/**
+ * API Service Layer
+ * 
+ * Backend is now fully integrated with Supabase Edge Functions
+ */
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Supabase configuration - update these with your project details
+const projectId = "rzgngutyyxgzottcuubi";
+const publicAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6Z25ndXR5eXhnem90dGN1dWJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2NzcxNTAsImV4cCI6MjA4MjI1MzE1MH0.IYlFqeGQMFf41DDroeicwX9ydlSh6ScstsB6eV9uDBM";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment variables");
-}
+const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-1da7ecad`;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// ============================================================================
+// AUTHENTICATION API
+// ============================================================================
 
 export interface LoginCredentials {
   email: string;
@@ -29,137 +34,151 @@ export interface AuthResponse {
     role: "user" | "admin";
   };
   token: string;
+  character?: any;
 }
 
-export async function login(credentials: LoginCredentials): Promise<{ session: any; user: any }> {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: credentials.email,
-    password: credentials.password,
+/**
+ * Login user
+ */
+export async function login(credentials: LoginCredentials): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${publicAnonKey}`,
+    },
+    body: JSON.stringify(credentials),
   });
 
-  if (error) throw error;
-  return { session: data.session, user: data.user };
-}
-
-export async function register(data: RegisterData): Promise<{ session: any; user: any }> {
-  const { data: authData, error } = await supabase.auth.signUp({
-    email: data.email,
-    password: data.password,
-  });
-
-  if (error) throw error;
-
-  if (authData.user) {
-    await supabase.from("user_profiles").insert({
-      id: authData.user.id,
-      username: data.username,
-      character_class: data.characterClass,
-    });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Login failed");
   }
 
-  return { session: authData.session, user: authData.user };
+  return response.json();
 }
 
-export async function logout(): Promise<void> {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+/**
+ * Register new user
+ */
+export async function register(data: RegisterData): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${publicAnonKey}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Registration failed");
+  }
+
+  return response.json();
+}
+
+/**
+ * Logout user
+ */
+export async function logout(token: string): Promise<void> {
+  await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+}
+
+/**
+ * Get current session
+ */
+export async function getSession(token: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/session`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Invalid session");
+  }
+
+  return response.json();
 }
 
 // ============================================================================
 // CHARACTER/GAME API
 // ============================================================================
 
-export interface UserProfile {
-  id: string;
-  username: string;
-  character_class: string;
-  level: number;
-  experience: number;
-  crystals: number;
-  btc_balance: number;
-  total_earnings: number;
-}
+export async function getCharacter(token: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/character`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
 
-export async function getUserProfile(): Promise<UserProfile> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
-
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-data?action=profile`,
-    {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.ok) throw new Error("Failed to fetch profile");
   return response.json();
 }
 
-export async function updateUserProfile(updates: Partial<UserProfile>): Promise<UserProfile> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+export async function updateCharacter(token: string, updates: any): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/character`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(updates),
+  });
 
-  const { data, error } = await supabase
-    .from("user_profiles")
-    .update(updates)
-    .eq("id", session.user.id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  return response.json();
 }
 
 // ============================================================================
 // QUEST API
 // ============================================================================
 
-export interface Quest {
-  id: string;
-  title: string;
-  description: string;
-  reward_crystals: number;
-  difficulty: string;
-}
+export async function getQuests(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/quests`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
 
-export async function getQuests() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
-
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-data?action=quests`,
-    {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.ok) throw new Error("Failed to fetch quests");
   return response.json();
 }
 
-export async function completeQuest(questId: string) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+export async function updateQuestProgress(
+  token: string,
+  questId: string,
+  updates: any
+): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/quests/${questId}`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(updates),
+  });
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-mechanics?action=complete_quest`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ quest_id: questId }),
-    }
-  );
+  return response.json();
+}
 
-  if (!response.ok) throw new Error("Failed to complete quest");
+export async function claimQuestReward(token: string, questId: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/quests/${questId}/claim`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to claim reward");
+  }
+
   return response.json();
 }
 
@@ -167,138 +186,158 @@ export async function completeQuest(questId: string) {
 // INVENTORY API
 // ============================================================================
 
-export interface Item {
-  id: string;
-  item_name: string;
-  item_type: string;
-  rarity: string;
-  quantity: number;
+export async function getInventory(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/inventory`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  return response.json();
 }
 
-export async function getInventory() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+export async function toggleItemEquip(
+  token: string,
+  itemId: string,
+  equipped: boolean
+): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/inventory/${itemId}`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ equipped }),
+  });
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-data?action=inventory`,
-    {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+  return response.json();
+}
 
-  if (!response.ok) throw new Error("Failed to fetch inventory");
+export async function addItem(token: string, itemData: any): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/inventory`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(itemData),
+  });
+
   return response.json();
 }
 
 // ============================================================================
-// GAME MECHANICS API
+// COMBAT API
 // ============================================================================
 
-export async function performCombat(opponentName: string, opponentLevel = 1) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+export async function processCombatResult(
+  token: string,
+  data: { victory: boolean; rewards: any; damage: number }
+): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/combat/result`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-mechanics?action=combat`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ opponent_name: opponentName, opponent_level: opponentLevel }),
-    }
-  );
-
-  if (!response.ok) throw new Error("Failed to perform combat");
-  return response.json();
-}
-
-export async function explore(areaName = "Forest") {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
-
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/game-mechanics?action=explore`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ area_name: areaName }),
-    }
-  );
-
-  if (!response.ok) throw new Error("Failed to explore");
   return response.json();
 }
 
 // ============================================================================
-// FAUCETPAY API INTEGRATION
+// TRANSACTION API
 // ============================================================================
 
-export async function convertCrystals(crystalsAmount: number) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+export async function getTransactions(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/transactions`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/faucetpay?action=convert_crystals`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ crystals_amount: crystalsAmount }),
-    }
-  );
-
-  if (!response.ok) throw new Error("Failed to convert crystals");
   return response.json();
 }
 
-export async function requestWithdrawal(btcAmount: number, faucetpayAddress: string) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+// ============================================================================
+// TRAVEL API
+// ============================================================================
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/faucetpay?action=withdraw`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        btc_amount: btcAmount,
-        faucetpay_address: faucetpayAddress,
-      }),
-    }
-  );
+export async function travel(token: string, locationId: number): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/travel`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ locationId }),
+  });
 
-  if (!response.ok) throw new Error("Failed to process withdrawal");
   return response.json();
 }
 
-export async function getWithdrawals() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
+// ============================================================================
+// ADMIN API
+// ============================================================================
 
-  const response = await fetch(
-    `${supabaseUrl}/functions/v1/faucetpay?action=withdrawals`,
-    {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+export async function getAllUsers(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/admin/users`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
 
-  if (!response.ok) throw new Error("Failed to fetch withdrawals");
   return response.json();
 }
 
+export async function getSystemStats(token: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/admin/stats`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  return response.json();
+}
+
+export async function getAllTransactions(token: string): Promise<any[]> {
+  const response = await fetch(`${API_BASE_URL}/admin/transactions`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+    },
+  });
+
+  return response.json();
+}
+
+export async function updateUserStatus(
+  token: string,
+  userId: string,
+  status: string
+): Promise<void> {
+  await fetch(`${API_BASE_URL}/admin/users/${userId}/status`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status }),
+  });
+}
+
+// ============================================================================
+// SEED ADMIN (Development)
+// ============================================================================
+
+export async function seedAdmin(): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/seed-admin`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${publicAnonKey}`,
+    },
+  });
+
+  return response.json();
+}

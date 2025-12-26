@@ -9,81 +9,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { LogOut, User } from "lucide-react";
 import { toast, Toaster } from "sonner";
+import * as api from "../services/api";
 
 interface UserDashboardProps {
   user: {
+    id: string;
     email: string;
     username: string;
     role: string;
   };
+  authToken: string;
   onLogout: () => void;
 }
 
-export function UserDashboard({ user, onLogout }: UserDashboardProps) {
-  const [character, setCharacter] = useState({
-    name: user.username,
-    level: 1,
-    class: "Warrior",
-    hp: 100,
-    maxHp: 100,
-    mp: 50,
-    maxMp: 50,
-    exp: 0,
-    expToNext: 100,
-    attack: 15,
-    defense: 10,
-    magic: 8,
-    gold: 100,
-    crypto: 0,
-  });
+export function UserDashboard({ user, authToken, onLogout }: UserDashboardProps) {
+  const [character, setCharacter] = useState<any>(null);
+  const [quests, setQuests] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [quests, setQuests] = useState([
-    {
-      id: 1,
-      title: "First Blood",
-      description: "Defeat 3 enemies in combat",
-      type: "combat" as const,
-      progress: 0,
-      required: 3,
-      expReward: 50,
-      goldReward: 30,
-      cryptoReward: 0.001,
-      completed: false,
-    },
-    {
-      id: 2,
-      title: "Explorer's Journey",
-      description: "Visit all available locations",
-      type: "exploration" as const,
-      progress: 1,
-      required: 3,
-      expReward: 75,
-      goldReward: 50,
-      cryptoReward: 0.0015,
-      completed: false,
-    },
-  ]);
-
-  const [inventory, setInventory] = useState([
-    {
-      id: 1,
-      name: "Iron Sword",
-      type: "weapon" as const,
-      rarity: "common" as const,
-      equipped: true,
-      stats: { attack: 5 },
-    },
-    {
-      id: 2,
-      name: "Leather Armor",
-      type: "armor" as const,
-      rarity: "common" as const,
-      equipped: true,
-      stats: { defense: 5, hp: 20 },
-    },
-  ]);
-
-  const [locations, setLocations] = useState([
+  const [locations] = useState([
     {
       id: 1,
       name: "Crystal Plains",
@@ -108,146 +54,157 @@ export function UserDashboard({ user, onLogout }: UserDashboardProps) {
   ]);
 
   const [currentLocation, setCurrentLocation] = useState(1);
-  const [transactions, setTransactions] = useState<any[]>([]);
 
-  const handleCombatEnd = (rewards: any) => {
-    if (rewards.exp > 0) {
-      let newExp = character.exp + rewards.exp;
-      let newLevel = character.level;
-      let newExpToNext = character.expToNext;
+  // Load all game data on mount
+  useEffect(() => {
+    loadGameData();
+  }, []);
 
-      while (newExp >= newExpToNext) {
-        newExp -= newExpToNext;
-        newLevel += 1;
-        newExpToNext = Math.floor(newExpToNext * 1.5);
-        toast.success(`Level Up! You are now level ${newLevel}!`);
-      }
-
-      setCharacter((prev) => ({
-        ...prev,
-        exp: newExp,
-        level: newLevel,
-        expToNext: newExpToNext,
-        gold: prev.gold + rewards.gold,
-        crypto: prev.crypto + rewards.crypto,
-        hp: Math.min(prev.hp, prev.maxHp),
-      }));
-
-      setTransactions((prev) => [
-        ...prev,
-        {
-          id: prev.length + 1,
-          type: "combat",
-          amount: rewards.crypto,
-          description: "Combat Victory",
-          timestamp: new Date(),
-        },
+  const loadGameData = async () => {
+    try {
+      setIsLoading(true);
+      const [charData, questsData, inventoryData, transactionsData] = await Promise.all([
+        api.getCharacter(authToken),
+        api.getQuests(authToken),
+        api.getInventory(authToken),
+        api.getTransactions(authToken),
       ]);
 
-      setQuests((prevQuests) =>
-        prevQuests.map((quest) => {
-          if (quest.id === 1 && quest.progress < quest.required) {
-            const newProgress = quest.progress + 1;
-            return {
-              ...quest,
-              progress: newProgress,
-              completed: newProgress >= quest.required,
-            };
-          }
-          return quest;
-        })
-      );
-    } else {
-      setCharacter((prev) => ({
-        ...prev,
-        hp: Math.floor(prev.maxHp * 0.5),
-        mp: Math.floor(prev.maxMp * 0.5),
-      }));
-      toast.error("Defeated in combat!");
+      setCharacter(charData);
+      setQuests(questsData);
+      setInventory(inventoryData);
+      setTransactions(transactionsData);
+      setCurrentLocation(charData.currentLocation || 1);
+    } catch (error: any) {
+      console.error("Failed to load game data:", error);
+      toast.error("Failed to load game data");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleQuestClaim = (questId: number) => {
-    const quest = quests.find((q) => q.id === questId);
-    if (!quest || !quest.completed) return;
+  const handleCombatEnd = async (rewards: any) => {
+    if (rewards.exp > 0) {
+      try {
+        const result = await api.processCombatResult(authToken, {
+          victory: true,
+          rewards,
+          damage: 0,
+        });
 
-    let newExp = character.exp + quest.expReward;
-    let newLevel = character.level;
-    let newExpToNext = character.expToNext;
-
-    while (newExp >= newExpToNext) {
-      newExp -= newExpToNext;
-      newLevel += 1;
-      newExpToNext = Math.floor(newExpToNext * 1.5);
-      toast.success(`Level Up! You are now level ${newLevel}!`);
-    }
-
-    setCharacter((prev) => ({
-      ...prev,
-      exp: newExp,
-      level: newLevel,
-      expToNext: newExpToNext,
-      gold: prev.gold + quest.goldReward,
-      crypto: prev.crypto + quest.cryptoReward,
-    }));
-
-    setQuests((prevQuests) =>
-      prevQuests.map((q) =>
-        q.id === questId ? { ...q, progress: q.required + 1 } : q
-      )
-    );
-
-    setTransactions((prev) => [
-      ...prev,
-      {
-        id: prev.length + 1,
-        type: "quest",
-        amount: quest.cryptoReward,
-        description: quest.title,
-        timestamp: new Date(),
-      },
-    ]);
-
-    toast.success(`Quest completed: ${quest.title}`);
-  };
-
-  const handleEquip = (itemId: number) => {
-    setInventory((prev) =>
-      prev.map((item) => {
-        if (item.id === itemId) {
-          const updatedInventory = prev.map((i) =>
-            i.type === item.type && i.id !== itemId ? { ...i, equipped: false } : i
-          );
-          return { ...item, equipped: true };
+        setCharacter(result.character);
+        
+        if (result.leveledUp) {
+          toast.success(`Level Up! You are now level ${result.character.level}!`);
         }
-        return item;
-      })
-    );
-    toast.success("Item equipped!");
+
+        // Reload quests and transactions
+        const [updatedQuests, updatedTransactions] = await Promise.all([
+          api.getQuests(authToken),
+          api.getTransactions(authToken),
+        ]);
+        setQuests(updatedQuests);
+        setTransactions(updatedTransactions);
+      } catch (error: any) {
+        console.error("Combat processing failed:", error);
+        toast.error("Failed to save combat results");
+      }
+    } else {
+      // Handle defeat
+      try {
+        await api.processCombatResult(authToken, {
+          victory: false,
+          rewards: { exp: 0, gold: 0, crypto: 0 },
+          damage: 0,
+        });
+        
+        const updatedChar = await api.getCharacter(authToken);
+        setCharacter(updatedChar);
+        toast.error("Defeated in combat!");
+      } catch (error: any) {
+        console.error("Combat processing failed:", error);
+      }
+    }
   };
 
-  const handleUnequip = (itemId: number) => {
-    setInventory((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, equipped: false } : item
-      )
-    );
-    toast.success("Item unequipped!");
+  const handleQuestClaim = async (questId: string) => {
+    try {
+      const result = await api.claimQuestReward(authToken, questId);
+      
+      setCharacter(result.character);
+      
+      if (result.rewards.leveledUp) {
+        toast.success(`Level Up! You are now level ${result.character.level}!`);
+      }
+
+      // Reload quests and transactions
+      const [updatedQuests, updatedTransactions] = await Promise.all([
+        api.getQuests(authToken),
+        api.getTransactions(authToken),
+      ]);
+      setQuests(updatedQuests);
+      setTransactions(updatedTransactions);
+
+      toast.success(`Quest completed!`);
+    } catch (error: any) {
+      console.error("Failed to claim quest:", error);
+      toast.error(error.message || "Failed to claim quest reward");
+    }
   };
 
-  const handleTravel = (locationId: number) => {
+  const handleEquip = async (itemId: string) => {
+    try {
+      await api.toggleItemEquip(authToken, itemId, true);
+      const updatedInventory = await api.getInventory(authToken);
+      setInventory(updatedInventory);
+      toast.success("Item equipped!");
+    } catch (error: any) {
+      console.error("Failed to equip item:", error);
+      toast.error("Failed to equip item");
+    }
+  };
+
+  const handleUnequip = async (itemId: string) => {
+    try {
+      await api.toggleItemEquip(authToken, itemId, false);
+      const updatedInventory = await api.getInventory(authToken);
+      setInventory(updatedInventory);
+      toast.success("Item unequipped!");
+    } catch (error: any) {
+      console.error("Failed to unequip item:", error);
+      toast.error("Failed to unequip item");
+    }
+  };
+
+  const handleTravel = async (locationId: number) => {
     const location = locations.find((l) => l.id === locationId);
     if (!location) return;
 
-    setCurrentLocation(locationId);
-    toast.success(`Traveled to ${location.name}`);
+    try {
+      const result = await api.travel(authToken, locationId);
+      setCharacter(result.character);
+      setCurrentLocation(locationId);
+      toast.success(`Traveled to ${location.name}`);
 
-    setCharacter((prev) => ({
-      ...prev,
-      hp: prev.maxHp,
-      mp: prev.maxMp,
-    }));
+      // Reload quests in case exploration quest updated
+      const updatedQuests = await api.getQuests(authToken);
+      setQuests(updatedQuests);
+    } catch (error: any) {
+      console.error("Failed to travel:", error);
+      toast.error("Failed to travel");
+    }
   };
+
+  if (isLoading || !character) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-amber-400 mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading your adventure...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
